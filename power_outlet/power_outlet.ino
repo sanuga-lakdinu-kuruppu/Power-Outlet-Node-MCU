@@ -1,6 +1,9 @@
 #include <ESP8266WiFi.h>
 #include <FirebaseArduino.h>
 #include "DHT.h"
+#include <NTPClient.h>
+#include <WiFiUdp.h>
+#include <time.h>
 
 
 #define WIFI_SSID "Test"          //Device wifi username
@@ -15,10 +18,21 @@
 #define TEMPERATURE_TYPE DHT11
 #define TEMPERATURE_PIN D1
 
+//Define DHT Object
 DHT dhtObj(TEMPERATURE_PIN, TEMPERATURE_TYPE);
+
+// Define NTP Client to get time
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, "pool.ntp.org");
 
 bool OUTPUT_STATUS = false;
 unsigned long TIMEPREVIOURMILLS_TEMP = 0;
+unsigned long TIMEPREVIOURMILLS_SCHEDULE = 0;
+int currentYear = 0;
+int currentMonth = 0;
+int currentDay = 0;
+int currentHour = 0;
+int currentMinute = 0;
 
 void setup() {
 
@@ -54,6 +68,10 @@ void setup() {
 
   //initializing dht sensor
   dhtObj.begin();
+
+  // Initialize a NTPClient to get time
+  timeClient.begin();
+  timeClient.setTimeOffset(19800);
 }
 
 void loop() {
@@ -75,6 +93,13 @@ void loop() {
     TIMEPREVIOURMILLS_TEMP = millis();
     readTemperatureData();
     checkEnvironmentCondition();
+  }
+
+  //every 30 second read schedule data and check
+  if (millis() - TIMEPREVIOURMILLS_SCHEDULE > 30000 || TIMEPREVIOURMILLS_SCHEDULE == 0) {
+    TIMEPREVIOURMILLS_SCHEDULE = millis();
+    getRealDateTime();
+    checkSchedule();
   }
 }
 
@@ -111,14 +136,55 @@ void checkEnvironmentCondition() {
 
   //check whether current values are inside safe the range
   if (upperTemp < tempCheck || upperHum < humCheck) {
-    OUTPUT_STATUS = false;
+    Firebase.setBool("HOUSES/HOUSES_1/ADAPTORS/ADAPTOR_1/OUTPUT_STATUS", false);
   } else if (lowerTemp > tempCheck || lowerHum > humCheck) {
-    OUTPUT_STATUS = false;
+    Firebase.setBool("HOUSES/HOUSES_1/ADAPTORS/ADAPTOR_1/OUTPUT_STATUS", false);
   }
-  else{
-    OUTPUT_STATUS = true;
-  }
+}
 
-  //setting device status
-  Firebase.setBool("HOUSES/HOUSES_1/ADAPTORS/ADAPTOR_1/OUTPUT_STATUS", OUTPUT_STATUS);
+void getRealDateTime() {
+  timeClient.update();
+
+  time_t epochTime = timeClient.getEpochTime();
+
+  currentHour = timeClient.getHours();
+  currentMinute = timeClient.getMinutes();
+
+  //Get a time structure
+  struct tm *ptm = gmtime((time_t *)&epochTime);
+
+  currentDay = ptm->tm_mday;
+  currentMonth = ptm->tm_mon + 1;
+  currentYear = ptm->tm_year + 1900;
+}
+
+void checkSchedule() {
+
+  //getting schedule details
+  int startScheduleYear = Firebase.getInt("HOUSES/HOUSES_1/ADAPTORS/ADAPTOR_1/SCHEDULE/START_YEAR");
+  int startScheduleMonth = Firebase.getInt("HOUSES/HOUSES_1/ADAPTORS/ADAPTOR_1/SCHEDULE/START_MONTH");
+  int startScheduleDay = Firebase.getInt("HOUSES/HOUSES_1/ADAPTORS/ADAPTOR_1/SCHEDULE/START_DAY");
+  int startScheduleHour = Firebase.getInt("HOUSES/HOUSES_1/ADAPTORS/ADAPTOR_1/SCHEDULE/START_HOUR");
+  int startScheduleMinute = Firebase.getInt("HOUSES/HOUSES_1/ADAPTORS/ADAPTOR_1/SCHEDULE/START_MINUTE");
+  int endScheduleYear = Firebase.getInt("HOUSES/HOUSES_1/ADAPTORS/ADAPTOR_1/SCHEDULE/END_YEAR");
+  int endScheduleMonth = Firebase.getInt("HOUSES/HOUSES_1/ADAPTORS/ADAPTOR_1/SCHEDULE/END_MONTH");
+  int endScheduleDay = Firebase.getInt("HOUSES/HOUSES_1/ADAPTORS/ADAPTOR_1/SCHEDULE/END_DAY");
+  int endScheduleHour = Firebase.getInt("HOUSES/HOUSES_1/ADAPTORS/ADAPTOR_1/SCHEDULE/END_HOUR");
+  int endScheduleMinute = Firebase.getInt("HOUSES/HOUSES_1/ADAPTORS/ADAPTOR_1/SCHEDULE/END_MINUTE");
+
+  bool scheduleStatus = Firebase.getBool("HOUSES/HOUSES_1/ADAPTORS/ADAPTOR_1/SCHEDULE/SCHEDULE_STATUS");
+
+  if (scheduleStatus == true) {
+
+    //check whether it is suitable to start the power automatically
+    if (currentYear == startScheduleYear && currentMonth == startScheduleMonth && currentDay == startScheduleDay && currentHour == startScheduleHour && currentMinute == startScheduleMinute) {
+      Firebase.setBool("HOUSES/HOUSES_1/ADAPTORS/ADAPTOR_1/OUTPUT_STATUS", true);
+    }
+
+    //check whether it is suitable to stop the power automatically
+    if (currentYear == endScheduleYear && currentMonth == endScheduleMonth && currentDay == endScheduleDay && currentHour == endScheduleHour && currentMinute == endScheduleMinute) {
+      Firebase.setBool("HOUSES/HOUSES_1/ADAPTORS/ADAPTOR_1/OUTPUT_STATUS", false);
+      Firebase.setBool("HOUSES/HOUSES_1/ADAPTORS/ADAPTOR_1/SCHEDULE/SCHEDULE_STATUS", false);
+    }
+  }
 }
