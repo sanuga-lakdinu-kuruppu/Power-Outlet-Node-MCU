@@ -63,8 +63,10 @@ void loop() {
 
   //setting output
   if (OUTPUT_STATUS) {
+    Serial.println("true");
     digitalWrite(OUTPUT_STATUS_PIN, HIGH);
   } else {
+    Serial.println("false");
     digitalWrite(OUTPUT_STATUS_PIN, LOW);
   }
 
@@ -72,6 +74,7 @@ void loop() {
   if (millis() - TIMEPREVIOURMILLS_TEMP > 5000 || TIMEPREVIOURMILLS_TEMP == 0) {
     TIMEPREVIOURMILLS_TEMP = millis();
     readTemperatureData();
+    checkEnvironmentCondition();
   }
 }
 
@@ -90,4 +93,32 @@ void readTemperatureData() {
   //set data inside the database
   Firebase.setFloat("HOUSES/HOUSES_1/ADAPTORS/ADAPTOR_1/TEMPERATURE/CURRENT", temp);
   Firebase.setFloat("HOUSES/HOUSES_1/ADAPTORS/ADAPTOR_1/HUMIDITY/CURRENT", hum);
+}
+
+void checkEnvironmentCondition() {
+
+  //getting safe temperature value range
+  float upperTemp = Firebase.getFloat("META_DATA/SAFE_TEMPERATURE/UPPER");
+  float lowerTemp = Firebase.getFloat("META_DATA/SAFE_TEMPERATURE/LOWER");
+
+  //getting safe humidity value range
+  float upperHum = Firebase.getFloat("META_DATA/SAFE_HUMIDITY/UPPER");
+  float lowerHum = Firebase.getFloat("META_DATA/SAFE_HUMIDITY/LOWER");
+
+  //getting current temperature and humidity
+  float humCheck = Firebase.getFloat("HOUSES/HOUSES_1/ADAPTORS/ADAPTOR_1/HUMIDITY/CURRENT");
+  float tempCheck = Firebase.getFloat("HOUSES/HOUSES_1/ADAPTORS/ADAPTOR_1/TEMPERATURE/CURRENT");
+
+  //check whether current values are inside safe the range
+  if (upperTemp < tempCheck || upperHum < humCheck) {
+    OUTPUT_STATUS = false;
+  } else if (lowerTemp > tempCheck || lowerHum > humCheck) {
+    OUTPUT_STATUS = false;
+  }
+  else{
+    OUTPUT_STATUS = true;
+  }
+
+  //setting device status
+  Firebase.setBool("HOUSES/HOUSES_1/ADAPTORS/ADAPTOR_1/OUTPUT_STATUS", OUTPUT_STATUS);
 }
