@@ -28,6 +28,7 @@ NTPClient timeClient(ntpUDP, "pool.ntp.org");
 bool OUTPUT_STATUS = false;
 unsigned long TIMEPREVIOURMILLS_TEMP = 0;
 unsigned long TIMEPREVIOURMILLS_SCHEDULE = 0;
+unsigned long TIMEPREVIOURMILLS_POWER = 0;
 int currentYear = 0;
 int currentMonth = 0;
 int currentDay = 0;
@@ -100,6 +101,12 @@ void loop() {
     TIMEPREVIOURMILLS_SCHEDULE = millis();
     getRealDateTime();
     checkSchedule();
+  }
+
+  //every 3 second read power consumption and update
+  if (millis() - TIMEPREVIOURMILLS_POWER > 3000 || TIMEPREVIOURMILLS_POWER == 0) {
+    TIMEPREVIOURMILLS_POWER = millis();
+    readPowerConsumption();
   }
 }
 
@@ -187,4 +194,48 @@ void checkSchedule() {
       Firebase.setBool("HOUSES/HOUSES_1/ADAPTORS/ADAPTOR_1/SCHEDULE/SCHEDULE_STATUS", false);
     }
   }
+}
+
+void readPowerConsumption() {
+
+  int readValue;
+  int maxValue = 0;
+  int minValue = 1024;
+  float Vpp;
+  float Vrms;
+  float current;
+  float power;
+
+  /* Note the time */
+  uint32_t startTime = millis();
+
+  /* and start a loop for one second to determine the max and min sensor value */
+  while (millis() - startTime < 1000) {
+    /* Read sensor value */
+    readValue = analogRead(A0);
+
+    /* Determine max value */
+    if (readValue > maxValue) maxValue = readValue;
+
+    /* Determine min value */
+    if (readValue < minValue) minValue = readValue;
+  }
+
+  /* Then calculate the Vpp */
+  Vpp = ((maxValue - minValue) * 3.3) / 1024.0;
+
+  /* Determine the Vrms */
+  Vrms = (Vpp / 2.0) * 0.707;
+
+  /* 
+    Then find the current using sensitivity of sensor 
+  */
+  current = (Vrms * 1000.0) / 66.0;
+
+  /* Finally calculate the power considering ideal state with pure resistive load */
+  power = 230.0 * current;
+
+  //set data inside the database
+  Firebase.setFloat("HOUSES/HOUSES_1/ADAPTORS/ADAPTOR_1/POWER/AMPS", current);
+  Firebase.setFloat("HOUSES/HOUSES_1/ADAPTORS/ADAPTOR_1/POWER/WATTS", power);
 }
